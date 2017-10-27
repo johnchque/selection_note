@@ -99,7 +99,8 @@
   Drupal.behaviors.appendText = {
     attach: function (context, settings) {
       $(document).ajaxComplete(function (event, request, settings) {
-        $("input[name='" + drupalSettings.selection_note.field + "[0][value]']").val(Drupal.shareSelection.selectedText);
+        $("input[name='related_node_id']").val(drupalSettings.selection_note.related_node_id);
+        $("input[name='related_node_text']").val(Drupal.shareSelection.selectedText);
       });
     }
   };

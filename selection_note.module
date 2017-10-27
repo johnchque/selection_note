@@ -5,27 +5,45 @@
  * Create notes for text selections.
  */
 
+use Drupal\Component\Serialization\Json;
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Link;
 use Drupal\Core\Url;
+use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
-use Drupal\node\NodeTypeInterface;
+use Drupal\node\NodeInterface;
 use Drupal\relation\Entity\Relation;
 
 /**
- * Implements hook_page_attachments_alter().
+ * Implements hook_ENTITY_TYPE_view() for node entities.
  */
-function selection_note_page_attachments_alter(array &$attachments) {
-  $node_type = NodeType::load(\Drupal::config('selection_note.settings')->get('content_type_node'));
-  $field = $node_type->getThirdPartySetting('selection_note', 'field');
-  $attachments['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
-  $attachments['#attached']['drupalSettings']['selection_note']['field'] = $field;
+function selection_note_node_view(array &$build, NodeInterface $node, EntityViewDisplayInterface $display, $view_mode) {
+  if ($build) {
+    // Get all the relations that contain the current node.
+    $relations = \Drupal::entityTypeManager()
+      ->getListBuilder('relation')
+      ->getStorage()
+      ->loadByProperties(['field_endpoints' => ['0' => $node->id()]]);
+    // Loop over the relations and build links to related nodes.
+    foreach ($relations as $key => $value) {
+      $text = strip_tags($value->get('field_relation_text')->value);
+      $url = Url::fromRoute('entity.node.canonical', ['node' => $value->get('field_relation_text_target')->value]);
+      $link = Link::fromTextAndUrl($key, $url);
+      $body = $build['body'][0]['#text'];
+      $build['body'][0]['#text'] = str_replace($text, $text . ' (' . $link->toString() . ')', $body);
+    };
+    $build['#attached']['drupalSettings']['selection_note']['related_node_id'] = $node->id();
+    $build['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
+  }
 }
 
 /**
  * Implements hook_preprocess_HOOK().
  */
 function selection_note_preprocess_node(&$variables) {
-  $node_type = NodeType::load(\Drupal::config('selection_note.settings')->get('content_type_node'));
+  $node_type = NodeType::load(\Drupal::config('selection_note.settings')
+    ->get('content_type_node'));
   $note_selection_wrapper = [
     '#type' => 'container',
     '#attributes' => [
@@ -35,12 +53,12 @@ function selection_note_preprocess_node(&$variables) {
     ],
   ];
 
-  $share_selection_message_wrapper = array(
+  $share_selection_message_wrapper = [
     '#type' => 'container',
-    '#attributes' => array(
+    '#attributes' => [
       'id' => 'ss-dialog-wrapper',
-    ),
-  );
+    ],
+  ];
 
   $note_selection_wrapper['add_note'] = [
     '#type' => 'link',
@@ -50,6 +68,9 @@ function selection_note_preprocess_node(&$variables) {
       'class' => ['use-ajax', 'button', 'note-selection-button'],
       'id' => ['note-selection-button'],
       'data-dialog-type' => 'modal',
+      'data-dialog-options' => Json::encode([
+        'width' => 700,
+      ]),
     ],
   ];
 
@@ -57,87 +78,50 @@ function selection_note_preprocess_node(&$variables) {
   $variables['content']['share'] = $note_selection_wrapper;
 }
 
-
 /**
  * Implements hook_form_FORM_ID_alter().
  */
-function selection_note_form_node_type_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  if ($form_state->getFormObject()->getEntity()->get('type') == \Drupal::config('selection_note.settings')->get('content_type_node')) {
-    $options = [];
-    $field_definitions = \Drupal::service('entity_field.manager')
-      ->getFieldDefinitions('node', $form_state->getFormObject()
-        ->getEntity()
-        ->get('type'));
-
-    $text_types = ['text_with_summary', 'text', 'text_long', 'list_string', 'string'];
-    foreach ($field_definitions as $field_name => $field_definition) {
-      if (in_array($field_definition->getType(), $text_types)) {
-        $options[$field_definition->getName()] = $field_definition->getLabel();
-      }
-    }
-
-    if ($options) {
-      $form['relation_field'] = [
-        '#title' => t('Relation Field'),
-        '#description' => t('Field where to store the selected text.'),
-        '#type' => 'select',
-        '#options' => $options,
-        '#default_value' => $form_state->getFormObject()->getEntity()->getThirdPartySetting('selection_note', 'field'),
-        '#empty_option' => t('None'),
-      ];
-    }
-    $form['#entity_builders'][] = 'selection_note_form_node_type_form_submit';
-  }
-}
-
-/**
- * Entity builder for the node type form with opencalais fields.
- *
- * @see opencalais_ui_form_node_type_form_alter()
- */
-function selection_note_form_node_type_form_submit($entity_type, NodeTypeInterface $type, &$form, FormStateInterface $form_state) {
-  $type->setThirdPartySetting('selection_note', 'field', $form_state->getValue('relation_field'));
-}
-
-/**
- * Implements hook_form_FORM_ID_alter().
- */
-function selection_note_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
-  $node_type = \Drupal::config('selection_note.settings')->get('content_type_node');
+function selection_note_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $node_type = \Drupal::config('selection_note.settings')
+    ->get('content_type_node');
   if ($form_id == 'node_' . $node_type . '_form') {
+    $form['related_node_id'] = [
+      '#type' => 'hidden',
+    ];
+    $form['related_node_text'] = [
+      '#type' => 'hidden',
+    ];
     $form['actions']['submit']['#submit'][] = 'selection_note_save_relation';
   }
 }
 
+/**
+ * Saves the relation between nodes.
+ */
 function selection_note_save_relation(&$form, FormStateInterface $form_state) {
   $values = $form_state->getValues();
-  /*$endpoints[0] = [
-    'entity_type' => 'node',
-    'entity_id'   => $values['nid'],
-    'delta'     => 0,
+  // @todo use relation endpoints when https://www.drupal.org/node/2916092.
+  /*$endpoints[] = [
+    'target_type' => 'node',
+    'target_id' => $values['related_node_id'],
   ];
-  $endpoints[1] = [
-    'entity_type' => 'node',
-    'entity_id'   => '1',
-    'delta'     => 1,
+
+  $endpoints[] = [
+    'target_type' => 'node',
+    'target_id' => $values['nid'],
   ];*/
-  /*$relation = Relation::create(array('relation_type' => 'related'));
-  $relation->endpoints[0]['target_id'] = 0;
-  $relation->endpoints[1]['target_id'] = 1;
+
+  $node_source = Node::load($values['related_node_id']);
+  $node_target = Node::load($values['nid']);
+
+  $relation = Relation::create([
+    'relation_type' => 'related',
+    'field_endpoints' => [$node_source, $node_target],
+    'field_relation_text' => $values['related_node_text'],
+    'field_relation_text_source' => $values['related_node_id'],
+    'field_relation_text_target' => $values['nid'],
+  ]);
   //$relation->endpoints = $endpoints;
   $relation->save();
-  */
-  $endpoints[] = array(
-    'target_type' => 'node',
-    'target_id' => 1,
-    );
-
-  $endpoints[] = array(
-    'target_type' => 'node',
-    'target_id' => 2,
-  );
-
-  $relation = Relation::create(array('relation_type' => 'related'));
-  $relation->endpoints = $endpoints;
-  $relation->save();
+  // @todo need to clear cache here.
 }
