@@ -116,7 +116,7 @@ function selection_note_save_relation(&$form, FormStateInterface $form_state) {
   $node_target = Node::load($values['nid']);
 
   $relation = Relation::create([
-    'relation_type' => 'related',
+    'relation_type' => 'intersection',
     'field_endpoints' => [$node_source, $node_target],
     'field_relation_text' => $values['related_node_text'],
     'field_relation_text_source' => $values['related_node_id'],
