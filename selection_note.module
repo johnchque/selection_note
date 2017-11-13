@@ -27,12 +27,14 @@ function selection_note_node_view(array &$build, NodeInterface $node, EntityView
       ->loadByProperties(['field_endpoints' => ['0' => $node->id()]]);
     // Loop over the relations and build links to related nodes.
     foreach ($relations as $key => $value) {
-      $text = $value->get('field_relation_text')->value;
-      $url = Url::fromRoute('entity.node.canonical', ['node' => $value->get('field_relation_text_target')->value]);
-      $link = Link::fromTextAndUrl($key, $url);
-      // @todo make this field configurable.
-      $body = $build['field_description'][0]['#text'];
-      $build['field_description'][0]['#text'] = str_replace($text, $text . ' (' . $link->toString() . ')', $body);
+      if ($value->get('field_relation_text')->value != '' && $value->get('field_relation_text_target')->value != '') {
+        $text = $value->get('field_relation_text')->value;
+        $url = Url::fromRoute('entity.node.canonical', ['node' => $value->get('field_relation_text_target')->value]);
+        $link = Link::fromTextAndUrl($key, $url);
+        // @todo make this field configurable.
+        $body = $build['field_description'][0]['#text'];
+        $build['field_description'][0]['#text'] = str_replace($text, $text . ' (' . $link->toString() . ')', $body);
+      }
     };
     $build['#attached']['drupalSettings']['selection_note']['related_node_id'] = $node->id();
     $build['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
