@@ -13,34 +13,101 @@ use Drupal\Core\Url;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\node\NodeInterface;
+use Drupal\node\NodeTypeInterface;
 use Drupal\relation\Entity\Relation;
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function selection_note_form_node_type_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $options = [];
+  $field_definitions = \Drupal::service('entity_field.manager')
+    ->getFieldDefinitions('node', $form_state->getFormObject()
+      ->getEntity()
+      ->get('type'));
+  $text_types = [
+    'text_with_summary',
+    'text',
+    'text_long',
+    'list_string',
+    'string',
+  ];
+  foreach ($field_definitions as $field_name => $field_definition) {
+    if (in_array($field_definition->getType(), $text_types)) {
+      $options[$field_definition->getName()] = $field_definition->getLabel();
+    }
+  }
+
+  if ($options == []) {
+    drupal_set_message('The content type has no text fields available. Please add one to use Selection note.', 'error');
+  }
+  if ($options) {
+    $form['selection_note_field'] = [
+      '#title' => t('Selection note field'),
+      '#description' => t('Field where to add relations from.'),
+      '#type' => 'select',
+      '#options' => $options,
+      '#default_value' => $form_state->getFormObject()
+        ->getEntity()
+        ->getThirdPartySetting('selection_note', 'field'),
+      '#empty_option' => t('None'),
+    ];
+  }
+  $form['#entity_builders'][] = 'selection_note_form_node_type_form_submit';
+}
+
+/**
+ * Entity builder for the node type form with selection note fields.
+ *
+ * @see opencalais_ui_form_node_type_form_alter()
+ */
+function selection_note_form_node_type_form_submit($entity_type, NodeTypeInterface $type, &$form, FormStateInterface $form_state) {
+  $type->setThirdPartySetting('selection_note', 'field', $form_state->getValue('selection_note_field'));
+}
 
 /**
  * Implements hook_ENTITY_TYPE_view() for node entities.
  */
 function selection_note_node_view(array &$build, NodeInterface $node, EntityViewDisplayInterface $display, $view_mode) {
-  if ($build) {
+  // @todo discuss about using the fields field_relation_text,
+  // field_relation_text_target and field_relation_text_source.
+  if ($relation_type = \Drupal::config('selection_note.settings')
+    ->get('relation_type')) {
     // Get all the relations that contain the current node.
+    $properties = [
+      'relation_type' => $relation_type,
+      'endpoints' => ['0' => $node->id()]
+    ];
+    // @todo remove when https://www.drupal.org/node/2916092.
+    $properties['field_endpoints'] = ['0' => $node->id()];
     $relations = \Drupal::entityTypeManager()
       ->getListBuilder('relation')
       ->getStorage()
-      ->loadByProperties(['field_endpoints' => ['0' => $node->id()]]);
+      ->loadByProperties($properties);
+
+    // Get the selected field to create relations from.
+    $type = NodeType::load($node->getType());
+    $field = $type->getThirdPartySetting('selection_note', 'field');
+
     // Loop over the relations and build links to related nodes.
     foreach ($relations as $key => $value) {
-      if ($value->get('field_relation_text')->value != '' && $value->get('field_relation_text_target')->value != '') {
+      // Create a link if relation fields are set and the current node's view is
+      // the source.
+      if ($value->get('field_relation_text')->value != '' && $value->get('field_relation_text_target')->value != '' && $node->id() == $value->get('field_relation_text_source')->value) {
         $text = $value->get('field_relation_text')->value;
         $url = Url::fromRoute('entity.node.canonical', ['node' => $value->get('field_relation_text_target')->value]);
         $link = Link::fromTextAndUrl($key, $url);
-        // @todo make this field configurable.
-        $body = $build['field_description'][0]['#text'];
-        $build['field_description'][0]['#text'] = str_replace($text, $text . ' (' . $link->toString() . ')', $body);
+        $body = $build[$field][0]['#text'];
+        $build[$field][0]['#text'] = str_replace($text, $text . ' (' . $link->toString() . ')', $body);
       }
     };
-    $build['#attached']['drupalSettings']['selection_note']['related_node_id'] = $node->id();
+    // Attach library and variables for js.
+    $build['#attached']['drupalSettings']['selection_note']['source_node_id'] = $node->id();
+    $build['#attached']['drupalSettings']['selection_note']['field'] = str_replace("_","-", $field);;
     $build['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
   }
   $renderer = \Drupal::service('renderer');
-  $renderer->addCacheableDependency($build);
+  $renderer->addCacheableDependency($build, $node);
 }
 
 /**
@@ -91,10 +158,10 @@ function selection_note_form_alter(&$form, FormStateInterface $form_state, $form
   $node_type = \Drupal::config('selection_note.settings')
     ->get('content_type_node');
   if ($form_id == 'node_' . $node_type . '_form') {
-    $form['related_node_id'] = [
+    $form['source_node_id'] = [
       '#type' => 'hidden',
     ];
-    $form['related_node_text'] = [
+    $form['source_node_text'] = [
       '#type' => 'hidden',
     ];
     $form['actions']['submit']['#submit'][] = 'selection_note_save_relation';
@@ -106,29 +173,29 @@ function selection_note_form_alter(&$form, FormStateInterface $form_state, $form
  */
 function selection_note_save_relation(&$form, FormStateInterface $form_state) {
   $values = $form_state->getValues();
-  // @todo use relation endpoints when https://www.drupal.org/node/2916092.
-  /*$endpoints[] = [
+  $endpoints[] = [
     'target_type' => 'node',
-    'target_id' => $values['related_node_id'],
+    'target_id' => $values['source_node_id'],
   ];
-
   $endpoints[] = [
     'target_type' => 'node',
     'target_id' => $values['nid'],
-  ];*/
+  ];
 
-  if ($values['related_node_id'] != '' && $values['related_node_text'] != '') {
-    $node_source = Node::load($values['related_node_id']);
+  // @todo remove field_endpoints when https://www.drupal.org/node/2916092.
+  // @todo consider changing the allowed field names.
+  if ($values['source_node_id '] != '' && $values['source_node_text'] != '') {
+    $node_source = Node::load($values['source_node_id']);
     $node_target = Node::load($values['nid']);
-
     $relation = Relation::create([
-      'relation_type' => 'intersection',
+      'relation_type' => \Drupal::config('selection_note.settings')
+        ->get('relation_type'),
       'field_endpoints' => [$node_source, $node_target],
-      'field_relation_text' => $values['related_node_text'],
-      'field_relation_text_source' => $values['related_node_id'],
+      'field_relation_text' => $values['source_node_text'],
+      'field_relation_text_source' => $values['source_node_id'],
       'field_relation_text_target' => $values['nid'],
     ]);
-    //$relation->endpoints = $endpoints;
+    $relation->endpoints = $endpoints;
     $relation->save();
   }
 

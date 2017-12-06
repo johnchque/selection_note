@@ -49,7 +49,7 @@
                 }
             });
 
-            $('.content').find('*').mouseup(function (e) {
+            $('.field--name-' + drupalSettings.selection_note.field).find('*').mouseup(function (e) {
                 if (!Drupal.shareSelection.dialogOpen) {
                     // Save selection on mouse-up.
                     Drupal.shareSelection.selectedText = Drupal.shareSelection.getSelection();
@@ -76,8 +76,8 @@
     Drupal.behaviors.appendText = {
         attach: function (context, settings) {
             $(document).ajaxComplete(function (event, request, settings) {
-                $("input[name='related_node_id']").val(drupalSettings.selection_note.related_node_id);
-                $("input[name='related_node_text']").val(Drupal.shareSelection.selectedText);
+                $("input[name='source_node_id']").val(drupalSettings.selection_note.source_node_id);
+                $("input[name='source_node_text']").val(Drupal.shareSelection.selectedText);
             });
         }
     };
