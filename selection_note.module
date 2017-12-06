@@ -103,7 +103,7 @@ function selection_note_node_view(array &$build, NodeInterface $node, EntityView
     };
     // Attach library and variables for js.
     $build['#attached']['drupalSettings']['selection_note']['source_node_id'] = $node->id();
-    $build['#attached']['drupalSettings']['selection_note']['field'] = str_replace("_","-", $field);;
+    $build['#attached']['drupalSettings']['selection_note']['field'] = str_replace("_","-", $field);
     $build['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
   }
   $renderer = \Drupal::service('renderer');
@@ -115,7 +115,7 @@ function selection_note_node_view(array &$build, NodeInterface $node, EntityView
  */
 function selection_note_preprocess_node(&$variables) {
   if ($node_type = NodeType::load(\Drupal::config('selection_note.settings')
-    ->get('content_type_node'))) {
+    ->get('content_type'))) {
     $note_selection_wrapper = [
       '#type' => 'container',
       '#attributes' => [
