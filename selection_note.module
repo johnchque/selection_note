@@ -156,7 +156,7 @@ function selection_note_preprocess_node(&$variables) {
  */
 function selection_note_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   $node_type = \Drupal::config('selection_note.settings')
-    ->get('content_type_node');
+    ->get('content_type');
   if ($form_id == 'node_' . $node_type . '_form') {
     $form['source_node_id'] = [
       '#type' => 'hidden',
@@ -184,7 +184,7 @@ function selection_note_save_relation(&$form, FormStateInterface $form_state) {
 
   // @todo remove field_endpoints when https://www.drupal.org/node/2916092.
   // @todo consider changing the allowed field names.
-  if ($values['source_node_id '] != '' && $values['source_node_text'] != '') {
+  if ($values['source_node_id'] != '' && $values['source_node_text'] != '') {
     $node_source = Node::load($values['source_node_id']);
     $node_target = Node::load($values['nid']);
     $relation = Relation::create([
