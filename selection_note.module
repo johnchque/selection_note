@@ -106,8 +106,8 @@ function selection_note_node_view(array &$build, NodeInterface $node, EntityView
     $build['#attached']['drupalSettings']['selection_note']['field'] = str_replace("_","-", $field);
     $build['#attached']['library'][] = 'selection_note/drupal.selection_note.admin';
   }
-  $renderer = \Drupal::service('renderer');
-  $renderer->addCacheableDependency($build, $node);
+  // @todo check if there is a better way.
+  \Drupal::service('cache_tags.invalidator')->invalidateTags(['rendered']);
 }
 
 /**
